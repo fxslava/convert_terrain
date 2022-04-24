@@ -56,17 +56,19 @@ int main(int argc, char** argv)
     int tileRowsNum = -1;
     int tileColsNum = -1;
     int iGpu = -1;
+    bool perTile = false;
     std::string* tileName = nullptr;
     std::string* outputStream = nullptr;
 
     std::vector<arg_desc_t> args = {
-        {"-w",      "Tile width",    ARG_TYPE_INT,  &texWidth},
-        {"-h",      "Tile height",   ARG_TYPE_INT,  &texHeight},
-        {"-gpu",    "GPU order",     ARG_TYPE_INT,  &iGpu},
-        {"-name",   "Terrain name",  ARG_TYPE_TEXT, &tileName},
-        {"-stream", "Output stream", ARG_TYPE_TEXT, &outputStream},
-        {"-tx",     "Tile rows num", ARG_TYPE_INT,  &tileRowsNum},
-        {"-ty",     "Tile cols num", ARG_TYPE_INT,  &tileColsNum},
+        {"-w",      "Tile width",      ARG_TYPE_INT,  &texWidth},
+        {"-h",      "Tile height",     ARG_TYPE_INT,  &texHeight},
+        {"-gpu",    "GPU order",       ARG_TYPE_INT,  &iGpu},
+        {"-name",   "Terrain name",    ARG_TYPE_TEXT, &tileName},
+        {"-stream", "Output stream",   ARG_TYPE_TEXT, &outputStream},
+        {"-tx",     "Tile rows num",   ARG_TYPE_INT,  &tileRowsNum},
+        {"-ty",     "Tile cols num",   ARG_TYPE_INT,  &tileColsNum},
+        {"-pertile","Per tile stream", ARG_TYPE_NONE, &perTile},
     };
     args_parser args_parser(args, argc, argv);
 
@@ -83,7 +85,7 @@ int main(int argc, char** argv)
     CUdevice cuDevice = 0;
     if (InitCUDA(iGpu, cuContext, cuDevice) && tileName) {
 
-        NvEncoderCuda enc(cuContext, texWidth, texHeight, NV_ENC_BUFFER_FORMAT_ARGB);
+        NvEncoderCuda enc(cuContext, texWidth, texHeight, NV_ENC_BUFFER_FORMAT_ARGB, 1);
 
         NV_ENC_INITIALIZE_PARAMS initializeParams = { NV_ENC_INITIALIZE_PARAMS_VER };
         NV_ENC_CONFIG encodeConfig = { NV_ENC_CONFIG_VER };
@@ -94,12 +96,16 @@ int main(int argc, char** argv)
         encodeConfig.frameIntervalP = 0; // I ONLY;
         encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CONSTQP;
         encodeConfig.rcParams.constQP.qpIntra = 31;
+        encodeConfig.rcParams.lookaheadDepth = 0;
         encodeConfig.encodeCodecConfig.hevcConfig.chromaFormatIDC = 3;
+        encodeConfig.encodeCodecConfig.hevcConfig.minCUSize = NV_ENC_HEVC_CUSIZE_32x32;
+        encodeConfig.encodeCodecConfig.hevcConfig.maxCUSize = NV_ENC_HEVC_CUSIZE_32x32;
 
         enc.CreateEncoder(&initializeParams);
 
         std::vector<uint8_t> compressedTiles;
         char fullTileName[256];
+        char streamTileName[256];
         for (int tx = 0; tx < tileRowsNum; tx++) {
             for (int ty = 0; ty < tileColsNum; ty++) {
             	sprintf_s(fullTileName, 256, "%s_x%d_y%d.bmp", tileName->c_str(), tx, ty);
@@ -124,13 +130,25 @@ int main(int argc, char** argv)
                     enc.EncodeFrame(vPacket);
                 }
 
-                for (std::vector<uint8_t>& packet : vPacket) {
-                    compressedTiles.insert(compressedTiles.end(), packet.data(), packet.data() + (int)packet.size());
+                if (perTile)
+                {
+                    sprintf_s(streamTileName, 256, "%s_x%d_y%d.hevc", outputStream->c_str(), tx, ty);
+
+                    std::ofstream fs(streamTileName, std::ios::out | std::ios::binary);
+                    for (std::vector<uint8_t>& packet : vPacket) {
+                        fs.write(reinterpret_cast<const char*>(packet.data()), packet.size());
+                    }
+                    fs.close();
+                }
+                else {
+                    for (std::vector<uint8_t>& packet : vPacket) {
+                        compressedTiles.insert(compressedTiles.end(), packet.data(), packet.data() + (int)packet.size());
+                    }
                 }
             }
         }
 
-        if (outputStream && compressedTiles.size() != 0) {
+        if (outputStream && compressedTiles.size() != 0 && !perTile) {
             std::ofstream fs(outputStream->c_str(), std::ios::out | std::ios::binary);
             fs.write(reinterpret_cast<const char*>(&compressedTiles[0]), compressedTiles.size());
             fs.close();

@@ -31,6 +31,12 @@ void args_parser::parse(int argc, char* argv[]) {
                 break;
             }
         }
+        else
+        {
+            if (desc.value) {
+                *((bool*)desc.value) = true;
+            }
+        }
     }
 }
 
