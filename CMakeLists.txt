@@ -41,4 +41,5 @@ set(NVCODEC_PUBLIC_INTERFACE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/interface)
 set(APP_COMMON_ARGS ${CMAKE_CURRENT_SOURCE_DIR}/common_args)
 
 add_subdirectory(terrain_converter)
+add_subdirectory(tiny_gpu_dec)
 add_subdirectory(common_args)
